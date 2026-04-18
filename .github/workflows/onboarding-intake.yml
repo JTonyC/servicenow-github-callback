@@ -151,7 +151,7 @@ jobs:
           echo "  viewer:      ${{ inputs.confluence_group_viewer }}"
           echo "  contributor: ${{ inputs.confluence_group_contributor }}"
           echo "  maintain:    ${{ inputs.confluence_group_maintain }}"
-          sleep 30
+          sleep 45
           echo "Confluence space configured."
 
   configure-github:
@@ -171,7 +171,7 @@ jobs:
           echo "  write:       ${{ inputs.github_group_write }}"
           echo "  maintain:    ${{ inputs.github_group_maintain }}"
           echo "  maintain+:   ${{ inputs.github_group_maintainplus }}"
-          sleep 30
+          sleep 120
 
           # Simulate a PR URL (in real life this would come from an API call)
           PR_URL="https://github.com/your-org/platform-github-teams/pull/42"
