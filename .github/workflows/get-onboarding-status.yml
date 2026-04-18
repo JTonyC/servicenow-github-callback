@@ -214,6 +214,8 @@ jobs:
               "terraform_run_id": ""
             }
           }
+          EOF
+
           echo "Payload:"
           cat payload.json
 
