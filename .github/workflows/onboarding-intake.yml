@@ -1,4 +1,4 @@
-name: product-tooling-orchestrator
+name: onboarding-intake
 
 on:
   workflow_dispatch:
