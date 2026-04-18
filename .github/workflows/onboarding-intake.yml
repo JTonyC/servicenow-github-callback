@@ -192,7 +192,7 @@ jobs:
           echo "  write:       ${{ inputs.github_group_write }}"
           echo "  maintain:    ${{ inputs.github_group_maintain }}"
           echo "  maintain+:   ${{ inputs.github_group_maintainplus }}"
-          sleep 30
+          sleep 50
           echo "JFrog permissions configured."
 
   finalize:
