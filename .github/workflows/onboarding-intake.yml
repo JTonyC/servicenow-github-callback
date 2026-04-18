@@ -207,7 +207,7 @@ jobs:
       - name: Summarize downstream configuration
         run: |
           echo "Finalizing orchestration for request: ${{ inputs.request_id }}"
-          echo "Product: ${{ inputs.product_name }} (${ inputs.product_code })"
+          echo "Product: ${{ inputs.product_name }} (${{ inputs.product_code })"
 
           echo "Jira job conclusion:        ${{ needs.configure-jira.result }}"
           echo "Confluence job conclusion:  ${{ needs.configure-confluence.result }}"
