@@ -80,7 +80,7 @@ on:
       scim_simulated_delay_seconds:
         description: "Simulated SCIM delay (seconds)"
         required: false
-        default: "300"
+        default: "60"
         type: string
 
 jobs:
