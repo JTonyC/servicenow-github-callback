@@ -1,0 +1,228 @@
+name: product-tooling-monitor
+
+on:
+  workflow_dispatch:
+    inputs:
+      workflow_run_id:
+        description: "Run ID of the product-tooling-orchestrator workflow"
+        required: true
+        type: string
+      request_id:
+        description: "ServiceNow request ID (for correlation)"
+        required: true
+        type: string
+      previous_state:
+        description: "Previous high-level state stored in ServiceNow"
+        required: false
+        default: ""
+        type: string
+      servicenow_endpoint:
+        description: "ServiceNow Scripted REST API endpoint URL"
+        required: true
+        type: string
+
+jobs:
+  monitor:
+    name: monitor-provisioning
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SN_API_KEY: ${{ secrets.SN_API_KEY }} # you define this in repo/org secrets
+    steps:
+      - name: Fetch workflow run
+        id: fetch-run
+        run: |
+          echo "Fetching workflow run ${{ inputs.workflow_run_id }} from repo ${{ github.repository }}"
+
+          curl -sSL \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ inputs.workflow_run_id }}" \
+            > run.json
+
+          echo "Run JSON:"
+          cat run.json
+
+      - name: Fetch workflow jobs
+        id: fetch-jobs
+        run: |
+          echo "Fetching jobs for run ${{ inputs.workflow_run_id }}"
+
+          curl -sSL \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ inputs.workflow_run_id }}/jobs" \
+            > jobs.json
+
+          echo "Jobs JSON:"
+          cat jobs.json
+
+      - name: Derive high-level state and downstream states
+        id: derive-state
+        run: |
+          echo "Deriving state from run + jobs..."
+
+          RUN_STATUS=$(jq -r '.status' run.json)
+          RUN_CONCLUSION=$(jq -r '.conclusion // ""' run.json)
+
+          JIRA_JOB=$(jq -r '.jobs[] | select(.name=="configure-jira") | .conclusion // ""' jobs.json)
+          CONFLUENCE_JOB=$(jq -r '.jobs[] | select(.name=="configure-confluence") | .conclusion // ""' jobs.json)
+          GITHUB_JOB=$(jq -r '.jobs[] | select(.name=="configure-github") | .conclusion // ""' jobs.json)
+          JFROG_JOB=$(jq -r '.jobs[] | select(.name=="configure-jfrog") | .conclusion // ""' jobs.json)
+          SCIM_JOB_STATUS=$(jq -r '.jobs[] | select(.name=="wait-for-external-groups") | .status // ""' jobs.json)
+
+          echo "Run status:       ${RUN_STATUS}"
+          echo "Run conclusion:   ${RUN_CONCLUSION}"
+          echo "Jira job:         ${JIRA_JOB}"
+          echo "Confluence job:   ${CONFLUENCE_JOB}"
+          echo "GitHub job:       ${GITHUB_JOB}"
+          echo "JFrog job:        ${JFROG_JOB}"
+          echo "SCIM wait status: ${SCIM_JOB_STATUS}"
+
+          map_downstream_state () {
+            local conclusion="$1"
+            case "$conclusion" in
+              success)   echo "completed" ;;
+              failure)   echo "failed" ;;
+              cancelled) echo "failed" ;;
+              ""|"null") echo "not_started" ;;
+              *)         echo "in_progress" ;;
+            esac
+          }
+
+          GITHUB_DOWNSTREAM_STATE=$(map_downstream_state "$GITHUB_JOB")
+          JIRA_DOWNSTREAM_STATE=$(map_downstream_state "$JIRA_JOB")
+          CONFLUENCE_DOWNSTREAM_STATE=$(map_downstream_state "$CONFLUENCE_JOB")
+          JFROG_DOWNSTREAM_STATE=$(map_downstream_state "$JFROG_JOB")
+
+          STATE="received"
+          CURRENT_STAGE="received"
+
+          if [ "$RUN_STATUS" = "queued" ]; then
+            STATE="received"
+            CURRENT_STAGE="received"
+          elif [ "$RUN_STATUS" = "in_progress" ]; then
+            if [ "$SCIM_JOB_STATUS" = "in_progress" ] || [ "$SCIM_JOB_STATUS" = "queued" ]; then
+              STATE="waiting_for_external_groups"
+              CURRENT_STAGE="wait_external_groups"
+            elif [ "$GITHUB_DOWNSTREAM_STATE" = "not_started" ]; then
+              STATE="ready_to_write_github_team_config"
+              CURRENT_STAGE="ready_github_teams"
+            elif [ "$GITHUB_DOWNSTREAM_STATE" = "completed" ] && [ "$RUN_CONCLUSION" = "" ]; then
+              STATE="waiting_for_github_reconcile"
+              CURRENT_STAGE="wait_github_reconcile"
+            else
+              STATE="validated"
+              CURRENT_STAGE="validated"
+            fi
+          elif [ "$RUN_STATUS" = "completed" ]; then
+            if [ "$RUN_CONCLUSION" = "success" ]; then
+              STATE="completed"
+              CURRENT_STAGE="completed"
+            else
+              STATE="failed"
+              CURRENT_STAGE="failed"
+            fi
+          fi
+
+          # Terminal state flag
+          IS_TERMINAL="false"
+          case "$STATE" in
+            completed|failed|manual_intervention_required|escalated)
+              IS_TERMINAL="true"
+              ;;
+          esac
+
+          RETRY_COUNT="0"
+          WAITING_REASON=""
+          if [ "$STATE" = "waiting_for_external_groups" ]; then
+            WAITING_REASON="SCIM has not provisioned groups into all downstream platforms yet"
+          fi
+
+          GITHUB_TEAMS_PR_URL=""
+
+          ESCALATED="false"
+
+          CREATED_AT=$(jq -r '.created_at' run.json)
+          UPDATED_AT=$(jq -r '.updated_at' run.json)
+
+          echo "STATE=${STATE}" >> "$GITHUB_OUTPUT"
+          echo "CURRENT_STAGE=${CURRENT_STAGE}" >> "$GITHUB_OUTPUT"
+          echo "IS_TERMINAL=${IS_TERMINAL}" >> "$GITHUB_OUTPUT"
+          echo "RETRY_COUNT=${RETRY_COUNT}" >> "$GITHUB_OUTPUT"
+          echo "WAITING_REASON=${WAITING_REASON}" >> "$GITHUB_OUTPUT"
+          echo "GITHUB_DOWNSTREAM_STATE=${GITHUB_DOWNSTREAM_STATE}" >> "$GITHUB_OUTPUT"
+          echo "JIRA_DOWNSTREAM_STATE=${JIRA_DOWNSTREAM_STATE}" >> "$GITHUB_OUTPUT"
+          echo "CONFLUENCE_DOWNSTREAM_STATE=${CONFLUENCE_DOWNSTREAM_STATE}" >> "$GITHUB_OUTPUT"
+          echo "JFROG_DOWNSTREAM_STATE=${JFROG_DOWNSTREAM_STATE}" >> "$GITHUB_OUTPUT"
+          echo "GITHUB_TEAMS_PR_URL=${GITHUB_TEAMS_PR_URL}" >> "$GITHUB_OUTPUT"
+          echo "ESCALATED=${ESCALATED}" >> "$GITHUB_OUTPUT"
+          echo "CREATED_AT=${CREATED_AT}" >> "$GITHUB_OUTPUT"
+          echo "UPDATED_AT=${UPDATED_AT}" >> "$GITHUB_OUTPUT"
+
+      - name: Build canonical payload
+        id: build-payload
+        run: |
+          echo "Building canonical JSON payload..."
+
+          WORKFLOW_RUN_ID="${{ inputs.workflow_run_id }}"
+          JOB_NAME="monitor-provisioning"
+          STATE="${{ steps.derive-state.outputs.STATE }}"
+          PREVIOUS_STATE="${{ inputs.previous_state }}"
+          IS_TERMINAL="${{ steps.derive-state.outputs.IS_TERMINAL }}"
+          LAST_UPDATED_AT="${{ steps.derive-state.outputs.UPDATED_AT }}"
+          SOURCE="github-actions-monitor"
+
+          RAW_STATE="${{ steps.derive-state.outputs.STATE }}"
+          RAW_CURRENT_STAGE="${{ steps.derive-state.outputs.CURRENT_STAGE }}"
+          RAW_CREATED_AT="${{ steps.derive-state.outputs.CREATED_AT }}"
+          RAW_UPDATED_AT="${{ steps.derive-state.outputs.UPDATED_AT }}"
+          RAW_RETRY_COUNT="${{ steps.derive-state.outputs.RETRY_COUNT }}"
+          RAW_WAITING_REASON="${{ steps.derive-state.outputs.WAITING_REASON }}"
+          RAW_ESCALATED="${{ steps.derive-state.outputs.ESCALATED }}"
+          RAW_GITHUB_DOWNSTREAM_STATE="${{ steps.derive-state.outputs.GITHUB_DOWNSTREAM_STATE }}"
+          RAW_JIRA_DOWNSTREAM_STATE="${{ steps.derive-state.outputs.JIRA_DOWNSTREAM_STATE }}"
+          RAW_CONFLUENCE_DOWNSTREAM_STATE="${{ steps.derive-state.outputs.CONFLUENCE_DOWNSTREAM_STATE }}"
+          RAW_JFROG_DOWNSTREAM_STATE="${{ steps.derive-state.outputs.JFROG_DOWNSTREAM_STATE }}"
+          RAW_GITHUB_TEAMS_PR_URL="${{ steps.derive-state.outputs.GITHUB_TEAMS_PR_URL }}"
+
+          cat > payload.json <<EOF
+          {
+            "workflow_run_id": "${WORKFLOW_RUN_ID}",
+            "job_name": "${JOB_NAME}",
+            "state": "${STATE}",
+            "previous_state": "${PREVIOUS_STATE}",
+            "is_terminal": ${IS_TERMINAL},
+            "last_updated_at": "${LAST_UPDATED_AT}",
+            "source": "${SOURCE}",
+            "raw_payload": {
+              "found": "true",
+              "state": "${RAW_STATE}",
+              "current_stage": "${RAW_CURRENT_STAGE}",
+              "created_at": "${RAW_CREATED_AT}",
+              "updated_at": "${RAW_UPDATED_AT}",
+              "retry_count": "${RAW_RETRY_COUNT}",
+              "waiting_reason": "${RAW_WAITING_REASON}",
+              "escalated": "${RAW_ESCALATED}",
+              "github_downstream_state": "${RAW_GITHUB_DOWNSTREAM_STATE}",
+              "jira_downstream_state": "${RAW_JIRA_DOWNSTREAM_STATE}",
+              "confluence_downstream_state": "${RAW_CONFLUENCE_DOWNSTREAM_STATE}",
+              "jfrog_downstream_state": "${RAW_JFROG_DOWNSTREAM_STATE}",
+              "github_teams_pr_url": "${RAW_GITHUB_TEAMS_PR_URL}",
+              "escalation_issue_url": "",
+              "terraform_run_url": "",
+              "terraform_run_id": ""
+            }
+          }
+          echo "Payload:"
+          cat payload.json
+
+      - name: Send status to ServiceNow
+        run: |
+          echo "Sending status to ServiceNow endpoint: ${{ inputs.servicenow_endpoint }}"
+
+          curl -sSL -X POST \
+            -H "Content-Type: application/json" \
+            -H "X-API-Key: ${SN_API_KEY}" \
+            -d @payload.json \
+            "${{ inputs.servicenow_endpoint }}"

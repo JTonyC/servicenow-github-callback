@@ -1,0 +1,217 @@
+name: product-tooling-orchestrator
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: "ServiceNow request ID"
+        required: true
+        type: string
+      product_name:
+        description: "Product name"
+        required: true
+        type: string
+      product_short_name:
+        description: "Product short name"
+        required: true
+        type: string
+      product_code:
+        description: "4-character product code"
+        required: true
+        type: string
+      owner_email_id:
+        description: "Owner email"
+        required: true
+        type: string
+
+      github_group_read:
+        description: "GitHub read group display name"
+        required: true
+        type: string
+      github_group_write:
+        description: "GitHub write group display name"
+        required: true
+        type: string
+      github_group_maintain:
+        description: "GitHub maintain group display name"
+        required: true
+        type: string
+      github_group_maintainplus:
+        description: "GitHub maintain+ group display name"
+        required: true
+        type: string
+
+      jira_group_viewer:
+        description: "Jira viewer group display name"
+        required: true
+        type: string
+      jira_group_contributor:
+        description: "Jira contributor group display name"
+        required: true
+        type: string
+      jira_group_maintain:
+        description: "Jira maintain group display name"
+        required: true
+        type: string
+
+      confluence_group_viewer:
+        description: "Confluence viewer group display name"
+        required: true
+        type: string
+      confluence_group_contributor:
+        description: "Confluence contributor group display name"
+        required: true
+        type: string
+      confluence_group_maintain:
+        description: "Confluence maintain group display name"
+        required: true
+        type: string
+
+      cmdb_id:
+        description: "Optional CMDB business application ID"
+        required: false
+        type: string
+      description:
+        description: "Product description"
+        required: false
+        type: string
+
+      # For simulation only – lets you tune how “slow” SCIM is
+      scim_simulated_delay_seconds:
+        description: "Simulated SCIM delay (seconds)"
+        required: false
+        default: "300"
+        type: string
+
+jobs:
+  scim-wait:
+    name: wait-for-external-groups
+    runs-on: ubuntu-latest
+    outputs:
+      groups_ready: ${{ steps.scim-check.outputs.groups_ready }}
+    steps:
+      - name: Log incoming request
+        run: |
+          echo "Request ID: ${{ inputs.request_id }}"
+          echo "Product: ${{ inputs.product_name }} (${ inputs.product_code })"
+          echo "Owner: ${{ inputs.owner_email_id }}"
+
+      - name: Simulate SCIM propagation delay
+        id: scim-check
+        run: |
+          echo "Simulating SCIM propagation for groups..."
+          echo "GitHub groups:"
+          echo "  - ${{ inputs.github_group_read }}"
+          echo "  - ${{ inputs.github_group_write }}"
+          echo "  - ${{ inputs.github_group_maintain }}"
+          echo "  - ${{ inputs.github_group_maintainplus }}"
+          echo "Jira groups:"
+          echo "  - ${{ inputs.jira_group_viewer }}"
+          echo "  - ${{ inputs.jira_group_contributor }}"
+          echo "  - ${{ inputs.jira_group_maintain }}"
+          echo "Confluence groups:"
+          echo "  - ${{ inputs.confluence_group_viewer }}"
+          echo "  - ${{ inputs.confluence_group_contributor }}"
+          echo "  - ${{ inputs.confluence_group_maintain }}"
+
+          DELAY=${{ inputs.scim_simulated_delay_seconds }}
+          echo "Sleeping for ${DELAY}s to simulate SCIM propagation..."
+          sleep "${DELAY}"
+
+          # In a more advanced sim you could randomise success/failure here.
+          echo "groups_ready=true" >> "$GITHUB_OUTPUT"
+
+  configure-jira:
+    name: configure-jira
+    runs-on: ubuntu-latest
+    needs: scim-wait
+    if: needs.scim-wait.outputs.groups_ready == 'true'
+    steps:
+      - name: Simulate Jira project creation
+        run: |
+          echo "Simulating Jira project creation for product: ${{ inputs.product_name }}"
+          echo "Using groups:"
+          echo "  viewer:      ${{ inputs.jira_group_viewer }}"
+          echo "  contributor: ${{ inputs.jira_group_contributor }}"
+          echo "  maintain:    ${{ inputs.jira_group_maintain }}"
+          # Simulate API latency
+          sleep 30
+          echo "Jira project configured."
+
+  configure-confluence:
+    name: configure-confluence
+    runs-on: ubuntu-latest
+    needs: scim-wait
+    if: needs.scim-wait.outputs.groups_ready == 'true'
+    steps:
+      - name: Simulate Confluence space creation
+        run: |
+          echo "Simulating Confluence space creation for product: ${{ inputs.product_name }}"
+          echo "Using groups:"
+          echo "  viewer:      ${{ inputs.confluence_group_viewer }}"
+          echo "  contributor: ${{ inputs.confluence_group_contributor }}"
+          echo "  maintain:    ${{ inputs.confluence_group_maintain }}"
+          sleep 30
+          echo "Confluence space configured."
+
+  configure-github:
+    name: configure-github
+    runs-on: ubuntu-latest
+    needs: scim-wait
+    if: needs.scim-wait.outputs.groups_ready == 'true'
+    outputs:
+      github_teams_pr_url: ${{ steps.pr-sim.outputs.github_teams_pr_url }}
+    steps:
+      - name: Simulate GitHub team + PR creation
+        id: pr-sim
+        run: |
+          echo "Simulating GitHub team configuration for product: ${{ inputs.product_name }}"
+          echo "Using groups:"
+          echo "  read:        ${{ inputs.github_group_read }}"
+          echo "  write:       ${{ inputs.github_group_write }}"
+          echo "  maintain:    ${{ inputs.github_group_maintain }}"
+          echo "  maintain+:   ${{ inputs.github_group_maintainplus }}"
+          sleep 30
+
+          # Simulate a PR URL (in real life this would come from an API call)
+          PR_URL="https://github.com/your-org/platform-github-teams/pull/42"
+          echo "Simulated PR URL: ${PR_URL}"
+          echo "github_teams_pr_url=${PR_URL}" >> "$GITHUB_OUTPUT"
+
+  configure-jfrog:
+    name: configure-jfrog
+    runs-on: ubuntu-latest
+    needs: scim-wait
+    if: needs.scim-wait.outputs.groups_ready == 'true'
+    steps:
+      - name: Simulate JFrog permission configuration
+        run: |
+          echo "Simulating JFrog permission setup for product: ${{ inputs.product_name }}"
+          echo "Using GitHub groups as identity source (conceptually):"
+          echo "  read:        ${{ inputs.github_group_read }}"
+          echo "  write:       ${{ inputs.github_group_write }}"
+          echo "  maintain:    ${{ inputs.github_group_maintain }}"
+          echo "  maintain+:   ${{ inputs.github_group_maintainplus }}"
+          sleep 30
+          echo "JFrog permissions configured."
+
+  finalize:
+    name: finalize-orchestration
+    runs-on: ubuntu-latest
+    needs:
+      - configure-jira
+      - configure-confluence
+      - configure-github
+      - configure-jfrog
+    steps:
+      - name: Summarize downstream configuration
+        run: |
+          echo "Finalizing orchestration for request: ${{ inputs.request_id }}"
+          echo "Product: ${{ inputs.product_name }} (${ inputs.product_code })"
+
+          echo "Jira job conclusion:        ${{ needs.configure-jira.result }}"
+          echo "Confluence job conclusion:  ${{ needs.configure-confluence.result }}"
+          echo "GitHub job conclusion:      ${{ needs.configure-github.result }}"
+          echo "JFrog job conclusion:       ${{ needs.configure-jfrog.result }}"
+
+          echo "GitHub PR URL (simulated):  ${{ needs.configure-github.outputs.github_teams_pr_url }}"
