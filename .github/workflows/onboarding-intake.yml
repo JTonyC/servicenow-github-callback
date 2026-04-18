@@ -93,7 +93,7 @@ jobs:
       - name: Log incoming request
         run: |
           echo "Request ID: ${{ inputs.request_id }}"
-          echo "Product: ${{ inputs.product_name }} (${ inputs.product_code })"
+          echo "Product: ${{ inputs.product_name }} (${{ inputs.product_code }})"
           echo "Owner: ${{ inputs.owner_email_id }}"
 
       - name: Simulate SCIM propagation delay
