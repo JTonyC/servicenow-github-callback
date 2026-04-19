@@ -11,15 +11,6 @@ on:
         description: "ServiceNow request ID (for correlation)"
         required: true
         type: string
-      previous_state:
-        description: "Previous high-level state stored in ServiceNow"
-        required: false
-        default: ""
-        type: string
-      servicenow_endpoint:
-        description: "ServiceNow Scripted REST API endpoint URL"
-        required: true
-        type: string
 
 jobs:
   monitor:
@@ -168,7 +159,6 @@ jobs:
           WORKFLOW_RUN_ID="${{ inputs.workflow_run_id }}"
           JOB_NAME="monitor-provisioning"
           STATE="${{ steps.derive-state.outputs.STATE }}"
-          PREVIOUS_STATE="${{ inputs.previous_state }}"
           IS_TERMINAL="${{ steps.derive-state.outputs.IS_TERMINAL }}"
           LAST_UPDATED_AT="${{ steps.derive-state.outputs.UPDATED_AT }}"
           SOURCE="github-actions-monitor"
@@ -191,7 +181,6 @@ jobs:
             "workflow_run_id": "${WORKFLOW_RUN_ID}",
             "job_name": "${JOB_NAME}",
             "state": "${STATE}",
-            "previous_state": "${PREVIOUS_STATE}",
             "is_terminal": ${IS_TERMINAL},
             "last_updated_at": "${LAST_UPDATED_AT}",
             "source": "${SOURCE}",
@@ -227,4 +216,4 @@ jobs:
             -H "Content-Type: application/json" \
             -H "X-API-Key: ${SN_API_KEY}" \
             -d @payload.json \
-            "${{ inputs.servicenow_endpoint }}"
+            "$SN_API_ENDPOINT"
