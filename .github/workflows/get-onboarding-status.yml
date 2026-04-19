@@ -19,6 +19,7 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       SN_API_KEY: ${{ secrets.SN_API_KEY }} # you define this in repo/org secrets
+      SN_API_ENDPOINT: ${{ vars.SN_API_ENDPOINT }} # you define this in repo/org variables
     steps:
       - name: Fetch workflow run
         id: fetch-run
