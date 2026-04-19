@@ -215,6 +215,6 @@ jobs:
 
           curl -sSL -X POST \
             -H "Content-Type: application/json" \
-            -H "X-API-Key: ${SN_API_KEY}" \
+            -H "x-sn-apikey: ${SN_API_KEY}" \
             -d @payload.json \
             "$SN_API_ENDPOINT"
